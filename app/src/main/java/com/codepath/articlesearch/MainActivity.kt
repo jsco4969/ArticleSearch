@@ -3,12 +3,16 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.codepath.articlesearch.databinding.ActivityMainBinding
 import com.codepath.asynchttpclient.AsyncHttpClient
 import com.codepath.asynchttpclient.callback.JsonHttpResponseHandler
+import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import org.json.JSONException
@@ -21,10 +25,8 @@ fun createJson() = Json {
 
 private const val TAG = "MainActivity/"
 private const val SEARCH_API_KEY = BuildConfig.API_KEY
-private const val ARTICLE_SEARCH_URL =
-    "https://api.nytimes.com/svc/search/v2/articlesearch.json?api-key=${SEARCH_API_KEY}"
+private const val ARTICLE_SEARCH_URL ="https://api.nytimes.com/svc/search/v2/articlesearch.json?api-key=${SEARCH_API_KEY}"
 
-@Suppress("NAME_SHADOWING")
 class MainActivity : AppCompatActivity() {
     private val articles = mutableListOf<Article>()
     private lateinit var articlesRecyclerView: RecyclerView
@@ -32,7 +34,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        
+        
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         val view = binding.root
@@ -47,6 +50,8 @@ class MainActivity : AppCompatActivity() {
             articlesRecyclerView.addItemDecoration(dividerItemDecoration)
         }
 
+        
+        
         val client = AsyncHttpClient()
         client.get(ARTICLE_SEARCH_URL, object : JsonHttpResponseHandler() {
             override fun onFailure(
@@ -58,6 +63,8 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Failed to fetch articles: $statusCode")
             }
 
+            
+            
             @SuppressLint("NotifyDataSetChanged")
             override fun onSuccess(statusCode: Int, headers: Headers, json: JSON) {
                 Log.i(TAG, "Successfully fetched articles: $json")
@@ -66,12 +73,24 @@ class MainActivity : AppCompatActivity() {
                         SearchNewsResponse.serializer(),
                         json.jsonObject.toString()
                     )
+
                     parsedJson.response?.docs?.let { list ->
-                        articles.addAll(list)
-                        parsedJson.response.docs.let { list ->
-                            articles.addAll(list)
+                        lifecycleScope.launch(IO) {
+                            // Clear existing cache
+                            (application as ArticleApplication).db.articleDao().deleteAll()
+                            // Insert new data into cache
+                            (application as ArticleApplication).db.articleDao().insertAll(list.map {
+                                ArticleEntity(
+                                    headline = it.headline?.main,
+                                    articleAbstract = it.abstract,
+                                    byline = it.byline?.original,
+                                    mediaImageUrl = it.mediaImageUrl
+                                )
+                            })
 
                             // Reload the screen
+                            articles.clear()
+                            articles.addAll(list)
                             articleAdapter.notifyDataSetChanged()
                         }
                     }
@@ -84,4 +103,8 @@ class MainActivity : AppCompatActivity() {
         })
 
     }
+}
+
+private fun <E> MutableList<E>.addAll(elements: List<DisplayArticle>) {
+
 }
